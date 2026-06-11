@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "geo_seq_inference"
 version = "0.1.0"
 description = "Exact randomization-based inference for paired geo experiments with time-uniform confidence bands and staggered-entry betting"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 readme = "README.md"
 license = {text = "MIT"}
 dependencies = [
