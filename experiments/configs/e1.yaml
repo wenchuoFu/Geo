@@ -1,0 +1,26 @@
+# E1: Fixed-time size/power comparison
+# Compares Theorem 2 (time-uniform bands) vs Trimmed Match CI vs Wald CI
+# Cross-product: tail x rho grid
+
+name: "e1_fixed_time_size_power"
+description: "Fixed-time Type I error and power comparison across methods"
+parameters:
+  n_pairs: [20, 50, 100]
+  T_max: [30, 60, 90]
+  tail: ["gaussian", "t2", "lognormal"]
+  rho: [0.0, 0.3, 0.7]
+  theta_true: [0.0, 0.2, 0.5, 1.0]  # 0.0 = null for size; >0 for power
+  stat: ["sgn", "rk", "tr"]
+  method: ["gsi_fixed", "gsi_sequential", "tm", "wald"]
+fixed:
+  alpha: 0.05
+  B: 999
+  N_MC: 500
+  hetero_scale: 0.1
+  seasonality: true
+  n_jobs: -1
+output:
+  - rejection_rate
+  - ci_coverage
+  - avg_ci_width
+  - avg_runtime_sec

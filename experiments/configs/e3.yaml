@@ -1,0 +1,29 @@
+# E3: Omega shape comparison
+# Compares pocock / obf / mid-peak / optimized omega shapes
+# Power-time curves for various n and T_max=90
+
+name: "e3_omega_shapes"
+description: "Power-time trade-off for different omega weight shapes"
+parameters:
+  n_pairs: [20, 50, 100]
+  T_max: [90]
+  tail: ["t2"]
+  rho: [0.5]
+  theta_true: [0.3, 0.5, 1.0]   # alternatives for power
+  omega_shape: ["pocock", "obf", "mid-peak", "optimized"]
+  stat: ["sgn"]
+fixed:
+  alpha: 0.05
+  B: 999
+  N_MC: 300
+  hetero_scale: 0.1
+  seasonality: true
+  kappa: 1.0
+  target_window: [30, 60]       # for mid-peak and optimized
+  delta_star: 0.5
+  n_jobs: -1
+output:
+  - rejection_rate_by_day
+  - avg_first_crossing_day
+  - critical_value
+  - power_curve

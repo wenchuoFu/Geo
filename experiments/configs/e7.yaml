@@ -1,0 +1,26 @@
+# E7: Heterogeneous theta_i
+# Tests CS behavior under heterogeneous treatment effects
+# Spec test (constant iROAS) size and power
+
+name: "e7_heterogeneous_theta"
+description: "CS location under heterogeneous theta_i; spec_test size/power"
+parameters:
+  n_pairs: [30, 60]
+  T_max: [60]
+  tail: ["t2"]
+  rho: [0.5]
+  hetero_level: [0.0, 0.1, 0.3, 0.5]  # 0=sharp null, >0=heterogeneous
+  stat: ["sgn", "tr"]
+fixed:
+  alpha: 0.05
+  B: 999
+  N_MC: 300
+  base_theta: 0.5                      # mean iROAS
+  seasonality: true
+  n_jobs: -1
+output:
+  - cs_lower
+  - cs_upper
+  - cs_contains_min_max                # does CS cover [min_i theta_i, max_i theta_i]?
+  - spec_test_rejection_rate
+  - spec_test_power

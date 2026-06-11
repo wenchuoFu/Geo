@@ -1,0 +1,24 @@
+# E2: Naive peeking inflation vs Theorem 2 bands
+# Demonstrates severe Type I error inflation of naive daily t-test
+# with continuous monitoring vs. exact finite-sample control of Theorem 2.
+
+name: "e2_peeking_inflation"
+description: "Naive peeking Type I error inflation vs Theorem 2 time-uniform bands"
+parameters:
+  n_pairs: [20, 50, 100]
+  T_max: [30, 60, 90]
+  tail: ["t2"]              # heavy tails make inflation worse
+  rho: [0.8]                # strong autocorrelation
+  theta_true: [0.0]          # pure null — measuring size only
+fixed:
+  alpha: 0.05
+  B: 999
+  N_MC: 1000
+  hetero_scale: 0.1
+  seasonality: true
+  n_jobs: -1
+output:
+  - naive_rejection_rate    # expected 30%+
+  - gsi_rejection_rate      # expected <= 5%
+  - avg_stopping_time_naive
+  - avg_stopping_time_gsi

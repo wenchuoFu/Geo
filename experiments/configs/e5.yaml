@@ -1,0 +1,24 @@
+# E5: Staggered betting comparison
+# Theorem 3 betting CS: dense vs sparse entry, sign vs rank g-modulation
+
+name: "e5_staggered_betting"
+description: "Power and coverage of betting CS under staggered entry patterns"
+parameters:
+  n_pairs: [30, 60]
+  T_max: [60]
+  tail: ["t2"]
+  rho: [0.3, 0.7]
+  theta_true: [0.0, 0.3, 0.5]
+  entry_pattern: ["dense", "sparse"]   # dense=uniform, sparse=clustered
+  g_modulation: ["sign", "rank"]       # pure sign vs rank-weighted amplitude
+fixed:
+  alpha: 0.05
+  N_MC: 300
+  hetero_scale: 0.1
+  seasonality: true
+  n_jobs: -1
+output:
+  - coverage_at_stopping
+  - avg_cs_width
+  - avg_settlement_time
+  - wealth_trajectories

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geo_seq_inference"
+version = "0.1.0"
+description = "Exact randomization-based inference for paired geo experiments with time-uniform confidence bands and staggered-entry betting"
+requires-python = ">=3.12"
+readme = "README.md"
+license = {text = "MIT"}
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+    "joblib>=1.3",
+]
+
+[project.optional-dependencies]
+baselines = ["trimmed_match"]
+dev = ["pytest>=7.0", "pytest-cov", "pyyaml"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "slow: marks tests as slow (deselect with '-k \"not slow\"')",
+    "nightly: full-spec tests with N_MC=500 x B=999 (very slow, run with -k nightly)",
+]

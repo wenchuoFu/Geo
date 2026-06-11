@@ -1,0 +1,23 @@
+# E6: Real data reproduction
+# Uses trimmed_match built-in dataset + semi-synthetic (real marginals + injected theta)
+# Requires trimmed_match to be installed
+
+name: "e6_real_data"
+description: "Real-data evaluation: TM built-in dataset + semi-synthetic with known theta"
+parameters:
+  dataset: ["tm_builtin", "semi_synthetic"]
+  n_pairs: [null]               # determined by dataset
+  T_max: [null]
+  theta_injected: [0.0, 0.3, 0.5, 1.0]  # for semi-synthetic only
+  stat: ["sgn", "rk"]
+  method: ["gsi_sequential", "tm", "gsi_betting"]
+fixed:
+  alpha: 0.05
+  B: 1999
+  N_MC: 200                     # fewer for real data (no synthetic noise)
+  n_jobs: -1
+output:
+  - ci_width
+  - ci_coverage                  # only for semi-synthetic with known theta
+  - runtime_sec
+  - method_comparison_table

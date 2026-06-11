@@ -1,0 +1,24 @@
+# E4: Baselines comparison
+# Theorem 2 bands vs Catoni CS vs Hoeffding CS
+# Demonstrates failure of parametric CS under assumption violations
+
+name: "e4_baselines_comparison"
+description: "Coverage and width comparison: GSI bands vs Catoni/Hoeffding CS"
+parameters:
+  n_pairs: [30, 60]
+  T_max: [60]
+  tail: ["gaussian", "t2", "pareto"]
+  rho: [0.0, 0.5]
+  theta_true: [0.0]              # null for coverage
+  method: ["gsi_sequential", "catoni", "hoeffding"]
+fixed:
+  alpha: 0.05
+  B: 999
+  N_MC: 300
+  hetero_scale: 0.1
+  seasonality: false
+  n_jobs: -1
+output:
+  - coverage_by_day
+  - avg_width_by_day
+  - assumption_violation_flag    # annotated for Catoni/Hoeffding
