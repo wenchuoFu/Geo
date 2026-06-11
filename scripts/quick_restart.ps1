@@ -38,8 +38,12 @@ else
 fi
 '@
 
-ssh @SshArgs "${User}@${EcsHost}" "bash -s" <<< $cmd
+# PowerShell 5.1 compatible: base64 encode and pipe
+$cmdBytes = [System.Text.Encoding]::UTF8.GetBytes($cmd)
+$cmdB64 = [Convert]::ToBase64String($cmdBytes)
+ssh @SshArgs "${User}@${EcsHost}" "echo $cmdB64 | base64 -d | bash"
 
 Write-Host ""
+Write-Host "==============================================" -ForegroundColor Cyan
 Write-Host "Monitor:  ssh -i $SshKey ${User}@${EcsHost} 'tail -f /root/run.log'" -ForegroundColor Cyan
 Write-Host "Check:    ssh -i $SshKey ${User}@${EcsHost} 'pgrep -af run_all.py'" -ForegroundColor Cyan
