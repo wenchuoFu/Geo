@@ -819,6 +819,54 @@ def _plot_e5(df: pd.DataFrame):
     print("  -> Figure saved: e5_betting.png")
 
 
+def _plot_e6(df: pd.DataFrame):
+    """E6: Semi-synthetic — coverage and width vs injected theta, by n_pairs."""
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
+    n_vals = sorted(df["n_pairs"].unique())
+    thetas = sorted(df["theta_injected"].unique())
+    x = np.arange(len(thetas)); width = 0.3
+
+    for j, n_val in enumerate(n_vals):
+        sub = df[df["n_pairs"] == n_val]
+        # Coverage panel
+        di_cov = [sub[sub["theta_injected"] == th]["direct_coverage"].values[0] for th in thetas]
+        gs_cov = [sub[sub["theta_injected"] == th]["gsi_coverage"].values[0] for th in thetas]
+        axes[0].bar(x + j * width, di_cov, width, label=f"direct n={n_val}",
+                    color=[COLORS["gsi"], COLORS["obf"]][j], alpha=0.85, edgecolor='black', linewidth=0.3)
+        axes[0].bar(x + j * width, gs_cov, width, label=f"GSI n={n_val}",
+                    color=[COLORS["catoni"], COLORS["hoeffding"]][j], alpha=0.5, hatch='//')
+        # Width panel
+        gs_w = [sub[sub["theta_injected"] == th]["gsi_avg_width"].values[0] for th in thetas]
+        axes[1].bar(x + j * width, gs_w, width, label=f"n={n_val}",
+                    color=[COLORS["gsi"], COLORS["obf"]][j], alpha=0.85)
+
+    axes[0].axhline(0.95, color='black', linestyle='--', alpha=0.5)
+    axes[0].set_xticks(x + width / 2); axes[0].set_xticklabels([f"θ={th:.1f}" for th in thetas])
+    axes[0].set_ylabel("Coverage"); axes[0].set_title("Coverage (direct + GSI grid)")
+    axes[0].legend(fontsize=8); axes[0].set_ylim(0, 1.05)
+
+    axes[1].set_xticks(x + width / 2); axes[1].set_xticklabels([f"θ={th:.1f}" for th in thetas])
+    axes[1].set_ylabel("Avg GSI width"); axes[1].set_title("CI width vs injected θ")
+    axes[1].legend(fontsize=8)
+
+    # Annotate unbounded fraction
+    for j, n_val in enumerate(n_vals):
+        sub = df[df["n_pairs"] == n_val]
+        for i, th in enumerate(thetas):
+            row = sub[sub["theta_injected"] == th]
+            if len(row) > 0:
+                ub = row["frac_unbounded"].values[0]
+                if ub > 0:
+                    axes[0].annotate(f"unb={ub:.2f}", (x[i] + j * width, 0.02),
+                                     fontsize=6, ha='center', rotation=90, color='red', alpha=0.7)
+
+    fig.suptitle("E6: Semi-synthetic — GSI confidence sets vs injected iROAS", fontsize=13, fontweight='bold')
+    plt.tight_layout()
+    fig.savefig(PLOTS_DIR / "e6_semi_synthetic.png", dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print("  -> Figure saved: e6_semi_synthetic.png")
+
+
 def _plot_e7(df: pd.DataFrame):
     fig, ax = plt.subplots(figsize=(9, 5))
     for n_val, marker in [(30, 'o-'), (60, 's--')]:
