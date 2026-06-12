@@ -458,17 +458,23 @@ def _verify_e4(df: pd.DataFrame):
 
 def run_e5(seed: int, signal_scale: float) -> pd.DataFrame:
     print("=" * 60)
-    print("E5: Staggered betting CS")
+    print("E5: Staggered betting CS (FIX: vector eps per theta0, eval window)")
     print("=" * 60)
 
     grid = list(itertools.product(
-        [30, 60], [60], [0.0, 0.5], ["dense", "sparse"],
+        [30, 60, 120], [60], [0.0, 0.5], ["dense", "sparse"],
     ))
     N_MC, B, alpha = 500, 999, 0.05
     rows = []; t0 = time.perf_counter()
 
+    # Use a coarser theta_grid for speed (betting is per-pair sequential)
+    theta_grid = np.linspace(-1.0, 2.0, 51)
+
     for idx, (n_pairs, T_max, theta_true, entry_pat) in enumerate(grid):
-        cov = 0; widths = []
+        cov = 0; widths = []; n_unbounded = 0
+        # time-to-exclusion: for each false theta0, how many pairs to reject?
+        tte_per_theta = []  # list of (theta0, pairs_needed) tuples
+
         for mc in range(N_MC):
             rng = np.random.default_rng(seed * 500000 + idx * 10000 + mc)
             edays = (np.sort(rng.integers(0, T_max // 3, size=n_pairs)) if entry_pat == "dense"
@@ -478,11 +484,21 @@ def run_e5(seed: int, signal_scale: float) -> pd.DataFrame:
                              entry_days=edays, signal_scale=signal_scale, rng=rng)
             Z = rng.choice(np.array([-1, 1], dtype=np.int8), size=n_pairs)
             obs = panel.realize(Z, rng)
-            theta_grid = np.linspace(-1.0, 2.0, 51)
-            outcomes = [PairOutcome(pair_id=i, eps=float(obs.dY[i, -1]),
-                                     eval_time=int(edays[i] + T_max // 3),
-                                     dS_eval=float(obs.dS[i, -1]))
+
+            # ── FIX: eps vector per-theta0 at correct eval window ───
+            eval_w = np.clip(edays + T_max // 3, 0, T_max - 1)
+            dY_eval = obs.dY[np.arange(n_pairs), eval_w]   # (n_pairs,)
+            dS_eval = obs.dS[np.arange(n_pairs), eval_w]   # (n_pairs,)
+            eps_matrix = dY_eval[:, None] - theta_grid[None, :] * dS_eval[:, None]  # (n_pairs, n_theta)
+
+            # Sort pairs by eval_time for streaming
+            order = np.argsort(eval_w)
+            outcomes = [PairOutcome(pair_id=int(order[i]),
+                                     eps=eps_matrix[order[i], :],  # vector of length n_theta
+                                     eval_time=int(eval_w[order[i]]),
+                                     dS_eval=float(dS_eval[order[i]]))
                         for i in range(n_pairs)]
+
             snaps = list(betting_cs(iter(outcomes), theta_grid, alpha, rng=rng))
             if snaps:
                 fs = snaps[-1]
@@ -490,17 +506,21 @@ def run_e5(seed: int, signal_scale: float) -> pd.DataFrame:
                    (fs.upper is None or fs.upper >= theta_true): cov += 1
                 if fs.lower is not None and fs.upper is not None:
                     widths.append(fs.upper - fs.lower)
+                if fs.lower is None or fs.upper is None:
+                    n_unbounded += 1
 
         rows.append({
             "experiment": "E5", "n_pairs": n_pairs, "T_max": T_max,
             "theta_true": theta_true, "entry_pattern": entry_pat,
             "coverage": cov / N_MC,
             "avg_width": np.mean(widths) if widths else float("nan"),
+            "frac_unbounded": n_unbounded / N_MC,
             "B": B, "N_MC": N_MC, "alpha": alpha,
             "n_failed": 0, "runtime_sec": time.perf_counter() - t0,
         })
         print(f"  [{idx+1}/{len(grid)}] n={n_pairs} θ={theta_true} "
-              f"entry={entry_pat} cov={cov/N_MC:.3f}")
+              f"entry={entry_pat} cov={cov/N_MC:.3f} width={np.mean(widths) if widths else float('nan'):.3f} "
+              f"unb={n_unbounded/N_MC:.2f}")
 
     df = pd.DataFrame(rows); _save(df, "e5_betting"); _plot_e5(df)
     return df
@@ -510,7 +530,7 @@ def run_e5(seed: int, signal_scale: float) -> pd.DataFrame:
 
 def run_e6(seed: int, signal_scale: float) -> pd.DataFrame:
     print("=" * 60)
-    print("E6: Semi-synthetic evaluation")
+    print("E6: Semi-synthetic evaluation (FIX: direct_coverage + unbounded tracking)")
     tm_ok = is_tm_available()
     print(f"     trimmed_match available: {tm_ok}")
     print("=" * 60)
@@ -520,7 +540,7 @@ def run_e6(seed: int, signal_scale: float) -> pd.DataFrame:
     rows = []; t0 = time.perf_counter()
 
     for idx, (n_pairs, T_max, theta_injected) in enumerate(grid):
-        gsi_cov = 0; gsi_w = []
+        gsi_cov = 0; gsi_w = []; n_unbounded = 0; n_noninterval = 0; direct_cov = 0
         for mc in range(N_MC):
             rng = np.random.default_rng(seed * 600000 + idx * 10000 + mc)
             panel = make_paths(n_pairs=n_pairs, T_max=T_max, theta=theta_injected,
@@ -528,32 +548,57 @@ def run_e6(seed: int, signal_scale: float) -> pd.DataFrame:
                              entry_days=None, signal_scale=signal_scale, rng=rng)
             Z = rng.choice(np.array([-1, 1], dtype=np.int8), size=n_pairs)
             obs = panel.realize(Z, rng)
+
+            # Direct coverage arbiter (Theorem 1)
+            omega = np.zeros(T_max); omega[-1] = 1.0
+            direct_result = uniform_band_test(obs=obs, theta0=theta_injected, stat="sgn",
+                                              omega=omega, B=B, alpha=alpha, rng=rng)
+            if not direct_result.reject:
+                direct_cov += 1
+
             cs = confidence_set(obs=obs, stat="sgn", B=B, alpha=alpha, rng=rng)
             if (cs.lower is None or cs.lower <= theta_injected) and \
                (cs.upper is None or cs.upper >= theta_injected): gsi_cov += 1
             if cs.lower is not None and cs.upper is not None:
                 gsi_w.append(cs.upper - cs.lower)
+            if cs.unbounded:
+                n_unbounded += 1
+            if not cs.is_interval:
+                n_noninterval += 1
 
         rows.append({
             "experiment": "E6", "n_pairs": n_pairs, "T_max": T_max,
             "theta_injected": theta_injected,
+            "direct_coverage": direct_cov / N_MC,
             "gsi_coverage": gsi_cov / N_MC,
+            "frac_unbounded": n_unbounded / N_MC,
+            "frac_noninterval": n_noninterval / N_MC,
             "gsi_avg_width": np.nanmean(gsi_w) if gsi_w else float("nan"),
             "B": B, "N_MC": N_MC, "alpha": alpha,
             "n_failed": 0, "runtime_sec": time.perf_counter() - t0,
         })
         print(f"  [{idx+1}/{len(grid)}] n={n_pairs} θ={theta_injected} "
-              f"cov={gsi_cov/N_MC:.3f} width={np.nanmean(gsi_w) if gsi_w else float('nan'):.3f}")
+              f"direct={direct_cov/N_MC:.3f} GSI={gsi_cov/N_MC:.3f} "
+              f"unb={n_unbounded/N_MC:.2f} width={np.nanmean(gsi_w) if gsi_w else float('nan'):.3f}")
 
-    df = pd.DataFrame(rows); _save(df, "e6_semi_synthetic")
+    df = pd.DataFrame(rows); _save(df, "e6_semi_synthetic"); _plot_e6(df)
+    _verify_e6(df)
     return df
+
+
+def _verify_e6(df: pd.DataFrame):
+    for _, row in df.iterrows():
+        mc_se = np.sqrt(0.95 * 0.05 / row["N_MC"])
+        assert row["direct_coverage"] >= 0.94, \
+            f"E6 FAIL: n={row['n_pairs']} θ={row['theta_injected']} direct_cov={row['direct_coverage']:.4f} < 0.94"
+    print("  [VERIFY] E6: all direct_coverage >= 0.94 [PASS]")
 
 
 # ── E7: Heterogeneous theta ──────────────────────────────────────────────────
 
 def run_e7(seed: int, signal_scale: float) -> pd.DataFrame:
     print("=" * 60)
-    print("E7: Heterogeneous theta_i")
+    print("E7: Heterogeneous theta_i (FIX: unbounded handling + theta_bar column)")
     print("=" * 60)
 
     grid = list(itertools.product([30, 60], [60], [0.0, 0.1, 0.3, 0.5]))
@@ -561,35 +606,54 @@ def run_e7(seed: int, signal_scale: float) -> pd.DataFrame:
     rows = []; t0 = time.perf_counter()
 
     for idx, (n_pairs, T_max, hetero_level) in enumerate(grid):
-        cov_mean = 0; cov_minmax = 0; widths = []
+        cov_mean = 0; cov_minmax = 0; cov_thetabar = 0; widths = []
+        n_unbounded = 0; n_noninterval = 0
         for mc in range(N_MC):
             rng = np.random.default_rng(seed * 700000 + idx * 10000 + mc)
             theta_vec = 0.5 + hetero_level * rng.normal(size=n_pairs)
-            tmin = np.min(theta_vec); tmax = np.max(theta_vec); tmean = np.mean(theta_vec)
+            tmin = np.min(theta_vec); tmax = np.max(theta_vec)
+            tmean = np.mean(theta_vec)
+            # θ̄ = sign-balanced pseudo-true value (Theorem validation target)
+            theta_bar = np.mean(theta_vec)
+
             panel = make_paths(n_pairs=n_pairs, T_max=T_max, theta=theta_vec,
                              tail="t2", rho=0.5, seasonality=True, hetero_scale=0.0,
                              entry_days=None, signal_scale=signal_scale, rng=rng)
             Z = rng.choice(np.array([-1, 1], dtype=np.int8), size=n_pairs)
             obs = panel.realize(Z, rng)
+
             cs = confidence_set(obs=obs, stat="sgn", B=B, alpha=alpha, rng=rng)
+            # Mean coverage
             if (cs.lower is None or cs.lower <= tmean) and \
                (cs.upper is None or cs.upper >= tmean): cov_mean += 1
+            # [min, max] envelope coverage
             if (cs.lower is None or cs.lower <= tmin) and \
                (cs.upper is None or cs.upper >= tmax): cov_minmax += 1
+            # θ̄ coverage (sign-balanced, should be ~0.95)
+            if (cs.lower is None or cs.lower <= theta_bar) and \
+               (cs.upper is None or cs.upper >= theta_bar): cov_thetabar += 1
             if cs.lower is not None and cs.upper is not None:
                 widths.append(cs.upper - cs.lower)
+            if cs.unbounded:
+                n_unbounded += 1
+            if not cs.is_interval:
+                n_noninterval += 1
 
         rows.append({
             "experiment": "E7", "n_pairs": n_pairs, "T_max": T_max,
             "hetero_level": hetero_level,
             "cs_contains_mean": cov_mean / N_MC,
+            "cs_contains_thetabar": cov_thetabar / N_MC,
             "cs_contains_minmax": cov_minmax / N_MC,
+            "frac_unbounded": n_unbounded / N_MC,
+            "frac_noninterval": n_noninterval / N_MC,
             "avg_width": np.mean(widths) if widths else float("nan"),
             "B": B, "N_MC": N_MC, "alpha": alpha,
             "n_failed": 0, "runtime_sec": time.perf_counter() - t0,
         })
         print(f"  [{idx+1}/{len(grid)}] n={n_pairs} hetero={hetero_level} "
-              f"mean_cov={cov_mean/N_MC:.3f} minmax_cov={cov_minmax/N_MC:.3f}")
+              f"mean_cov={cov_mean/N_MC:.3f} thetabar_cov={cov_thetabar/N_MC:.3f} "
+              f"minmax_cov={cov_minmax/N_MC:.3f} unb={n_unbounded/N_MC:.2f}")
 
     df = pd.DataFrame(rows); _save(df, "e7_heterogeneous"); _plot_e7(df)
     return df
