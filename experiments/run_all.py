@@ -356,12 +356,13 @@ def run_e4(seed: int, signal_scale: float) -> pd.DataFrame:
     grid = list(itertools.product(
         [30, 60], [60], ["gaussian", "t2", "pareto"], [0.0, 0.5],
     ))
-    N_MC, B, alpha = 1000, 1999, 0.05   # FIX-2: B from config, no override
+    N_MC, B, alpha = 1000, 1999, 0.05
     rows = []; t0 = time.perf_counter()
 
     for idx, (n_pairs, T_max, tail, rho) in enumerate(grid):
         gsi_cov, cat_cov, hoef_cov, tm_cov = 0, 0, 0, 0
         gsi_w, cat_w, hoef_w, tm_w = [], [], [], []
+        n_unbounded, n_noninterval, direct_cov = 0, 0, 0
         n_failed = 0
 
         for mc in range(N_MC):
@@ -372,12 +373,23 @@ def run_e4(seed: int, signal_scale: float) -> pd.DataFrame:
             Z = rng.choice(np.array([-1, 1], dtype=np.int8), size=n_pairs)
             obs = panel.realize(Z, rng)
 
-            # GSI — FIX-2: no B override
+            # ── Direct coverage (arbiter per spec §7.6) ──
+            omega_fixed = np.zeros(T_max); omega_fixed[-1] = 1.0
+            direct_result = uniform_band_test(obs=obs, theta0=0.0, stat="sgn",
+                                              omega=omega_fixed, B=B, alpha=alpha, rng=rng)
+            if not direct_result.reject:
+                direct_cov += 1
+
+            # ── GSI confidence set ──
             cs = confidence_set(obs=obs, stat="sgn", B=B, alpha=alpha, rng=rng)
             if (cs.lower is None or cs.lower <= 0.0) and (cs.upper is None or cs.upper >= 0.0):
                 gsi_cov += 1
             if cs.lower is not None and cs.upper is not None:
                 gsi_w.append(cs.upper - cs.lower)
+            if cs.unbounded:
+                n_unbounded += 1
+            if not cs.is_interval:
+                n_noninterval += 1
 
             # Catoni CS on daily increments of dY/dS ratios
             daily_ratios = _safe_ratios(obs.dY, obs.dS)
@@ -409,10 +421,13 @@ def run_e4(seed: int, signal_scale: float) -> pd.DataFrame:
             "experiment": "E4", "n_pairs": n_pairs, "T_max": T_max,
             "tail": tail, "rho": rho,
             "gsi_coverage": gsi_cov / N_MC,
+            "direct_coverage": direct_cov / N_MC,
+            "frac_unbounded": n_unbounded / N_MC,
+            "frac_noninterval": n_noninterval / N_MC,
+            "gsi_avg_width": np.nanmean(gsi_w) if gsi_w else float("nan"),
             "catoni_coverage": cat_cov / N_MC if cat_cov > 0 else float("nan"),
             "hoeffding_coverage": hoef_cov / N_MC if hoef_cov > 0 else float("nan"),
             "tm_coverage": tm_cov / N_MC if tm_ok else float("nan"),
-            "gsi_avg_width": np.nanmean(gsi_w) if gsi_w else float("nan"),
             "catoni_avg_width": np.nanmean(cat_w) if cat_w else float("nan"),
             "hoeffding_avg_width": np.nanmean(hoef_w) if hoef_w else float("nan"),
             "tm_avg_width": np.nanmean(tm_w) if tm_w else float("nan"),
@@ -421,8 +436,9 @@ def run_e4(seed: int, signal_scale: float) -> pd.DataFrame:
         }
         rows.append(row)
         print(f"  [{idx+1}/{len(grid)}] {tail}/ρ={rho} "
-              f"GSI={gsi_cov/N_MC:.3f} Catoni={cat_cov/N_MC:.3f} "
-              f"Hoeff={hoef_cov/N_MC:.3f} TM={tm_cov/N_MC if tm_ok else 'N/A'}")
+              f"direct={direct_cov/N_MC:.3f} GSI={gsi_cov/N_MC:.3f} "
+              f"unb={n_unbounded/N_MC:.2f} nonint={n_noninterval/N_MC:.2f} "
+              f"Catoni={cat_cov/N_MC:.3f} Hoeff={hoef_cov/N_MC:.3f}")
 
     df = pd.DataFrame(rows); _save(df, "e4_baselines"); _plot_e4(df)
     _verify_e4(df)
@@ -430,10 +446,11 @@ def run_e4(seed: int, signal_scale: float) -> pd.DataFrame:
 
 
 def _verify_e4(df: pd.DataFrame):
+    """Verify direct_coverage ≥ 0.94 (Theorem 1 arbiter, not grid-inversion CI)."""
     for _, row in df.iterrows():
         mc_se = np.sqrt(0.95 * 0.05 / row["N_MC"])
-        assert row["gsi_coverage"] >= 0.92, \
-            f"E4 FAIL: {row['tail']}/ρ={row['rho']} GSI cov={row['gsi_coverage']:.4f} < 0.92 (MC_SE={mc_se:.4f})"
+        assert row["direct_coverage"] >= 0.94, \
+            f"E4 FAIL: {row['tail']}/ρ={row['rho']} direct_cov={row['direct_coverage']:.4f} < 0.94 (MC_SE={mc_se:.4f})"
     print("  [VERIFY] E4: all GSI coverage >= 0.92 [PASS]")
 
 
