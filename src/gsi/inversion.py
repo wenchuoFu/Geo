@@ -143,11 +143,17 @@ def confidence_set(
     )
 
 
-def _auto_grid(obs: ObsPanel) -> np.ndarray:
+def _auto_grid(obs: ObsPanel, n_points: int = 401) -> np.ndarray:
     """Generate default theta grid from dY/dS ratio quantiles.
 
     Uses final-period cumulative differences. Excludes pairs with
     near-zero dS (Fieller problem).
+
+    The grid is constructed to:
+      - Span [q01, q99] of dY/dS ratios with 20% margin.
+      - Always include theta=0 (critical for heavy-tail coverage).
+      - Use at least ``n_points`` points (default 401) for adequate
+        resolution near the true value.
     """
     dY_final = obs.dY[:, -1]   # (n,)
     dS_final = obs.dS[:, -1]   # (n,)
@@ -155,8 +161,7 @@ def _auto_grid(obs: ObsPanel) -> np.ndarray:
     # Filter pairs with non-degenerate spend difference
     mask = np.abs(dS_final) > 1e-10
     if not np.any(mask):
-        # All degenerate: return symmetric grid around 0
-        return np.linspace(-5.0, 5.0, 201, dtype=np.float64)
+        return np.linspace(-5.0, 5.0, n_points, dtype=np.float64)
 
     ratios = dY_final[mask] / dS_final[mask]
 
@@ -165,10 +170,16 @@ def _auto_grid(obs: ObsPanel) -> np.ndarray:
 
     # Expand range slightly
     margin = max((q99 - q01) * 0.2, 0.1)
-    lo = q01 - margin
-    hi = q99 + margin
+    lo = min(q01 - margin, 0.0)   # always reach at least 0
+    hi = max(q99 + margin, 0.0)
 
-    return np.linspace(lo, hi, 201, dtype=np.float64)
+    grid = np.linspace(lo, hi, n_points, dtype=np.float64)
+
+    # Pin theta=0 exactly into the grid (avoid off-by-one for heavy tails)
+    if not np.any(np.abs(grid) < 1e-12):
+        grid = np.sort(np.append(grid, 0.0))
+
+    return grid
 
 
 def _extract_bounds(
