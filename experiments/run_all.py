@@ -556,9 +556,9 @@ def run_e6(seed: int, signal_scale: float) -> pd.DataFrame:
             if not direct_result.reject:
                 direct_cov += 1
 
-            # ── Grid-inversion CS WITH boundary-expansion ──
+            # ── Grid-inversion CS WITH boundary-expansion + FIXED-TIME ω ──
             cs = _confidence_set_with_expansion(obs=obs, stat="sgn", B=B,
-                                                alpha=alpha, rng=rng)
+                                                alpha=alpha, rng=rng, omega=omega)
             if (cs.lower is None or cs.lower <= theta_injected) and \
                (cs.upper is None or cs.upper >= theta_injected):
                 gsi_cov += 1
@@ -664,7 +664,9 @@ def run_e7(seed: int, signal_scale: float) -> pd.DataFrame:
             Z = rng.choice(np.array([-1, 1], dtype=np.int8), size=n_pairs)
             obs = panel.realize(Z, rng)
 
-            cs = confidence_set(obs=obs, stat="sgn", B=B, alpha=alpha, rng=rng)
+            omega_fixed = np.zeros(T_max); omega_fixed[-1] = 1.0
+            cs = confidence_set(obs=obs, stat="sgn", omega=omega_fixed,
+                               B=B, alpha=alpha, rng=rng)
             # Mean coverage
             if (cs.lower is None or cs.lower <= tmean) and \
                (cs.upper is None or cs.upper >= tmean):
@@ -798,7 +800,7 @@ def _compute_theta_bar(*, n_pairs: int, T_max: int, hetero_level: float,
 
 def _confidence_set_with_expansion(
     obs, stat: str = "sgn", B: int = 1999, alpha: float = 0.05,
-    rng = None, max_expansions: int = 3,
+    rng = None, max_expansions: int = 3, omega: np.ndarray | None = None,
 ) -> CSResult:
     """confidence_set with automatic grid expansion when acceptance hits boundary.
 
@@ -806,8 +808,10 @@ def _confidence_set_with_expansion(
     (i.e. NOT a true Fieller unbounded case), the grid is expanded outward
     by 50 % and the scan is repeated.  This prevents false under-coverage
     from grid truncation.
+
+    Pass ``omega`` to control fixed-time vs time-uniform weighting.
     """
-    cs = confidence_set(obs=obs, stat=stat, B=B, alpha=alpha, rng=rng)
+    cs = confidence_set(obs=obs, stat=stat, omega=omega, B=B, alpha=alpha, rng=rng)
 
     for _ in range(max_expansions):
         accepted = cs.accepted
@@ -835,7 +839,7 @@ def _confidence_set_with_expansion(
 
         new_grid = np.linspace(lo, hi, len(grid))
         cs = confidence_set(obs=obs, theta_grid=new_grid, stat=stat,
-                           B=B, alpha=alpha, rng=rng)
+                           omega=omega, B=B, alpha=alpha, rng=rng)
 
     return cs
 
