@@ -37,10 +37,6 @@ env/
 geo_env/
 *.venv
 
-# Experiment outputs (large, regenerable)
-experiments/results/
-experiments/plots/
-
 # Logs
 *.log
 
